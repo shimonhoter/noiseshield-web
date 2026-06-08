@@ -8,74 +8,48 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   body {
-    background: #0a0c0f;
-    color: #e8edf5;
+    background: #0a0c0f; color: #e8edf5;
     font-family: 'Segoe UI', sans-serif;
-    min-height: 100vh;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 24px;
+    min-height: 100vh; display: flex;
+    flex-direction: column; align-items: center;
+    justify-content: center; padding: 24px;
   }
   .card {
-    background: #111418;
-    border: 1px solid #1e2430;
-    border-radius: 16px;
-    padding: 32px 24px;
-    width: 100%;
-    max-width: 400px;
-    text-align: center;
+    background: #111418; border: 1px solid #1e2430;
+    border-radius: 16px; padding: 32px 24px;
+    width: 100%; max-width: 400px; text-align: center;
   }
   h1 { color: #00e5a0; font-size: 28px; margin-bottom: 8px; }
   .subtitle { color: #5a6480; font-size: 14px; margin-bottom: 32px; }
   .status {
-    background: #0a1a0a;
-    border: 1px solid #1e3a1e;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 24px;
-    color: #00e5a0;
-    font-size: 14px;
-    min-height: 52px;
+    background: #0a1a0a; border: 1px solid #1e3a1e;
+    border-radius: 12px; padding: 16px; margin-bottom: 24px;
+    color: #00e5a0; font-size: 14px; min-height: 52px;
   }
   .btn {
-    width: 100%;
-    padding: 16px;
-    border-radius: 12px;
-    border: none;
-    font-size: 16px;
-    font-weight: bold;
-    cursor: pointer;
-    margin-bottom: 12px;
-    transition: opacity 0.2s;
+    width: 100%; padding: 16px; border-radius: 12px;
+    border: none; font-size: 16px; font-weight: bold;
+    cursor: pointer; margin-bottom: 12px; transition: opacity 0.2s;
   }
   .btn:disabled { opacity: 0.5; cursor: not-allowed; }
   .btn-primary { background: #00e5a0; color: #0a0c0f; }
-  .btn-danger { background: #ff4060; color: white; }
+  .btn-retry { background: #0080ff; color: white; display: none; }
+  .btn-danger { background: #ff4060; color: white; display: none; }
   .wave {
-    display: none;
-    justify-content: center;
-    gap: 4px;
-    margin: 20px 0;
-    height: 40px;
-    align-items: center;
+    display: none; justify-content: center; gap: 4px;
+    margin: 20px 0; height: 40px; align-items: center;
   }
   .bar {
-    width: 4px;
-    background: #00e5a0;
-    border-radius: 2px;
+    width: 4px; background: #00e5a0; border-radius: 2px;
     animation: wave 1s ease-in-out infinite;
   }
   .bar:nth-child(2) { animation-delay: 0.1s; }
   .bar:nth-child(3) { animation-delay: 0.2s; }
   .bar:nth-child(4) { animation-delay: 0.3s; }
   .bar:nth-child(5) { animation-delay: 0.4s; }
-  @keyframes wave {
-    0%,100% { height: 8px; }
-    50% { height: 32px; }
-  }
+  @keyframes wave { 0%,100%{height:8px} 50%{height:32px} }
   .wave.active { display: flex; }
+  .timer { color: #5a6480; font-size: 12px; margin-top: 8px; }
 </style>
 </head>
 <body>
@@ -83,90 +57,128 @@
   <h1>NoiseShield</h1>
   <p class="subtitle">שיחה עם סינון רעשי רקע</p>
   <div class="status" id="status">ממתין לחיבור...</div>
+  <div class="timer" id="timer"></div>
   <div class="wave" id="wave">
     <div class="bar"></div><div class="bar"></div><div class="bar"></div>
     <div class="bar"></div><div class="bar"></div>
   </div>
   <button class="btn btn-primary" id="btnJoin" onclick="joinCall()">🎙 הצטרף לשיחה</button>
-  <button class="btn btn-danger" id="btnHangup" onclick="hangup()" style="display:none">📵 סיים שיחה</button>
+  <button class="btn btn-retry" id="btnRetry" onclick="retry()">🔄 נסה שוב</button>
+  <button class="btn btn-danger" id="btnHangup" onclick="hangup()">📵 סיים שיחה</button>
 </div>
 
 <script>
   const urlParams = new URLSearchParams(window.location.search);
   const roomId = urlParams.get('room');
-  let peer, localStream;
+  let peer, localStream, timeoutTimer, countdownInterval;
 
   if (!roomId) {
-    document.getElementById('status').textContent = 'קישור לא תקין — חסר מזהה חדר';
+    document.getElementById('status').textContent = 'קישור לא תקין';
     document.getElementById('btnJoin').disabled = true;
   }
 
   async function joinCall() {
-    document.getElementById('status').textContent = 'מבקש גישה למיקרופון...';
     document.getElementById('btnJoin').disabled = true;
+    document.getElementById('btnRetry').style.display = 'none';
+    document.getElementById('status').textContent = 'מבקש גישה למיקרופון...';
 
     try {
       localStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true
-        },
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
         video: false
       });
+      await connect();
+    } catch(e) {
+      setStatus('שגיאה: ' + e.message, true);
+    }
+  }
 
-      document.getElementById('status').textContent = 'מתחבר לשרת...';
+  async function connect() {
+    setStatus('מתחבר לשרת...');
 
-      // צור Peer עם ID אקראי (הצד השני)
-      peer = new Peer(undefined, {
-        host: '0.peerjs.com',
-        port: 443,
-        path: '/',
-        secure: true,
-        key: 'peerjs'
+    if (peer) { try { peer.destroy(); } catch(e) {} }
+
+    peer = new Peer(undefined, {
+      host: '0.peerjs.com', port: 443,
+      path: '/', secure: true, key: 'peerjs',
+      config: { iceServers: [
+        { urls: 'stun:stun.l.google.com:19302' },
+        { urls: 'stun:stun1.l.google.com:19302' }
+      ]}
+    });
+
+    peer.on('open', () => {
+      setStatus('מתקשר לאפליקציה...');
+      startCountdown(60);
+
+      const call = peer.call(roomId, localStream);
+
+      call.on('stream', (remoteStream) => {
+        clearTimers();
+        playAudio(remoteStream);
+        setStatus('🟢 שיחה פעילה');
+        document.getElementById('wave').classList.add('active');
+        document.getElementById('btnHangup').style.display = 'block';
+        document.getElementById('btnJoin').style.display = 'none';
       });
 
-      peer.on('open', (myId) => {
-        document.getElementById('status').textContent = 'מתקשר לאפליקציה...';
-
-        // התקשר לאפליקציה Android שמאזינה על roomId
-        const call = peer.call(roomId, localStream);
-
-        call.on('stream', (remoteStream) => {
-          playAudio(remoteStream);
-          document.getElementById('status').textContent = '🟢 שיחה פעילה';
-          document.getElementById('wave').classList.add('active');
-          document.getElementById('btnHangup').style.display = 'block';
-          document.getElementById('btnJoin').style.display = 'none';
-        });
-
-        call.on('error', (err) => {
-          document.getElementById('status').textContent = 'שגיאה: ' + err.message;
-          document.getElementById('btnJoin').disabled = false;
-        });
-
-        call.on('close', () => {
-          document.getElementById('status').textContent = 'השיחה הסתיימה';
-          document.getElementById('wave').classList.remove('active');
-        });
-
-        // timeout אם לא מחובר תוך 15 שניות
-        setTimeout(() => {
-          if (document.getElementById('status').textContent === 'מתקשר לאפליקציה...') {
-            document.getElementById('status').textContent = 'לא ניתן להתחבר — ודא שהאפליקציה פעילה';
-            document.getElementById('btnJoin').disabled = false;
-          }
-        }, 15000);
+      call.on('error', (err) => {
+        clearTimers();
+        setStatus('שגיאה: ' + err.type, true);
       });
 
-      peer.on('error', (err) => {
-        document.getElementById('status').textContent = 'שגיאת חיבור: ' + err.type;
+      call.on('close', () => {
+        clearTimers();
+        setStatus('השיחה הסתיימה');
+        document.getElementById('wave').classList.remove('active');
+        document.getElementById('btnHangup').style.display = 'none';
+        document.getElementById('btnJoin').style.display = 'block';
         document.getElementById('btnJoin').disabled = false;
       });
+    });
 
-    } catch(e) {
-      document.getElementById('status').textContent = 'שגיאה: ' + e.message;
+    peer.on('error', (err) => {
+      clearTimers();
+      setStatus('שגיאת חיבור: ' + err.type, true);
+    });
+  }
+
+  function startCountdown(seconds) {
+    let remaining = seconds;
+    document.getElementById('timer').textContent = `מחכה לאפליקציה... ${remaining}שנ׳`;
+    countdownInterval = setInterval(() => {
+      remaining--;
+      document.getElementById('timer').textContent = `מחכה לאפליקציה... ${remaining}שנ׳`;
+      if (remaining <= 0) clearInterval(countdownInterval);
+    }, 1000);
+
+    timeoutTimer = setTimeout(() => {
+      clearInterval(countdownInterval);
+      document.getElementById('timer').textContent = '';
+      setStatus('פג תוקף החיבור — לחץ "נסה שוב"', true);
+    }, seconds * 1000);
+  }
+
+  function clearTimers() {
+    clearTimeout(timeoutTimer);
+    clearInterval(countdownInterval);
+    document.getElementById('timer').textContent = '';
+  }
+
+  function setStatus(msg, showRetry = false) {
+    document.getElementById('status').textContent = msg;
+    if (showRetry) {
+      document.getElementById('btnRetry').style.display = 'block';
       document.getElementById('btnJoin').disabled = false;
+    }
+  }
+
+  function retry() {
+    document.getElementById('btnRetry').style.display = 'none';
+    if (localStream) {
+      connect();
+    } else {
+      joinCall();
     }
   }
 
@@ -176,17 +188,19 @@
     audio.autoplay = true;
     audio.setAttribute('playsinline', '');
     document.body.appendChild(audio);
-    audio.play().catch(e => console.log('Audio play:', e));
+    audio.play().catch(e => console.log('play:', e));
   }
 
   function hangup() {
+    clearTimers();
     if (peer) peer.destroy();
     if (localStream) localStream.getTracks().forEach(t => t.stop());
-    document.getElementById('status').textContent = 'השיחה הסתיימה';
+    setStatus('השיחה הסתיימה');
     document.getElementById('wave').classList.remove('active');
     document.getElementById('btnHangup').style.display = 'none';
     document.getElementById('btnJoin').style.display = 'block';
     document.getElementById('btnJoin').disabled = false;
+    localStream = null;
   }
 </script>
 </body>
